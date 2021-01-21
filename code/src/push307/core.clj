@@ -3,7 +3,8 @@
 ;; Desc   : GP-Mozart
 
 (ns push307.core
-  (:require [clojure.string :as str])
+  (:require [clojure.string :as str]
+            [clojure.java.io :as io])
   (:gen-class))
 
 ;;;;;;;;;
@@ -1583,27 +1584,158 @@
   (println best-melody-klang)
   (println "You can hear the melody in http://ctford.github.io/klangmeister/."))
 
+(defn write-report
+  "Reports information on the population each generation, including
+  best program, best program size, best total error, and best errors."
+  [filename population generation]
+  (let [best-individual (find-best-individual population)
+        best-genome (:genome best-individual)
+        best-program (translate-plushy-to-push best-genome)
+        best-program-size (count best-genome)
+        best-total-error (:total-error best-individual)
+        best-errors (:errors best-individual)
+        best-melody (get-melody best-individual)]
+    (with-open [w (io/writer filename :append true)]
+      (.write w "-------------------------------------------------------")
+      (.newLine w)
+      (.write w (str "               Report for Generation " generation "            "))
+      (.newLine w)
+      (.write w "-------------------------------------------------------")
+      (.newLine w)
+      (.write w "Best genome: ")
+      (.write w "(")
+      (.write w (apply str best-genome))
+      (.write w ")")
+      (.newLine w)
+      (.newLine w)
+      (.write w "Best PUSH program: ")
+      (.write w "(")
+      (.write w (apply str best-program))
+      (.write w ")")
+      (.newLine w)
+      (.newLine w)
+      (.write w (str "Best program size: " best-program-size))
+      (.newLine w)
+      (.newLine w)
+      (.write w (str "Best total error: " best-total-error))
+      (.newLine w)
+      (.newLine w)
+      (.write w (str "Best errors: " best-errors))
+      (.newLine w)
+      (.newLine w)
+      (.write w "Best melody: ")
+      (.write w "(")
+      (.write w (apply str best-melody))
+      (.write w ")")
+      (.newLine w)
+      (.newLine w)
+      )))
+
+(defn count-fielddiversity
+  "Counts diversity of a field."
+  [melody field]
+  (let [field-list (remove nil? (map #(field %) melody))
+        unique (count (distinct field-list))]
+    unique))
+
+(defn write-best-melody
+  "Prints the best melody in Klang"
+  [filename best-individual]
+  (let [best-melody (get-melody best-individual)
+        best-melody-klang (to-klangmeister-tune best-melody)
+        best-error (:total-error best-individual)
+        best-size (count (:genome best-individual))
+
+        num-notes (count best-melody)
+        pitch-unique (count-fielddiversity best-melody :pitch)
+        duration-unique (count-fielddiversity best-melody :duration)]
+    (with-open [w (io/writer filename :append true)]
+      (.newLine w)
+      (.newLine w)
+      (.newLine w)
+
+      (.write w "-------------------------------------------------------")
+      (.newLine w)
+      (.write w (str "               Summary " "            "))
+      (.newLine w)
+      (.write w "-------------------------------------------------------")
+      (.newLine w)
+      
+      (.write w "-Best individual melody: ")
+      (.write w best-melody-klang)
+      (.newLine w)
+
+      (.write w (str "-Best error: " best-error))
+      (.newLine w)
+      (.write w (str "-Best program size: " best-size))
+      (.newLine w)
+
+      (.write w (str "-Num of notes: " num-notes))
+      (.newLine w)
+      (.write w (str "-Unique pitch: " pitch-unique))
+      (.newLine w)
+      (.write w (str "-Unique duration: " duration-unique))
+      (.newLine w))))
+
+(defn get-fn-name
+  [function]
+  (let [start (str/index-of "#" function)
+        end (str/index-of "@" function)]
+    (subs function start (inc end))))
+
+(defn write-config
+  [filename population-size max-generations error-function error-calculation
+   parent-selection instructions max-initial-plushy-size tests]
+  (with-open [w (io/writer filename :append true)]
+    (.newLine w)
+    (.newLine w)
+    (.write w "-------------------------------------------------------")
+    (.newLine w)
+    (.write w (str "               Config " "            "))
+    (.newLine w)
+    (.write w "-------------------------------------------------------")
+    (.newLine w)
+    (.write w (str "- Filename : " filename))
+    (.newLine w)
+    (.newLine w)
+    (.write w (str "- Max Generations : " max-generations))
+    (.newLine w)
+    (.write w (str "- Population size : " population-size))
+    (.newLine w)
+    (.write w (str "- Max initial plushy size : " max-initial-plushy-size))
+    (.newLine w)
+    (.newLine w)
+    (.write w (str "- Error function : "  error-function))
+    (.newLine w)
+    (.write w (str "- Error calculation : " error-calculation))
+    (.newLine w)
+    (.write w (str "- Parent selection : " parent-selection))
+    (.newLine w)
+    (.newLine w)))
+
 (defn push-gp
   "Main GP loop. Initializes the population, and then repeatedly
   generates and evaluates new populations. Stops if it exceeds the
   maximum generations and prints melody of the best individual
   in the last generation. Prints report each generation."
   [{:keys [population-size max-generations error-function error-calculation
-           parent-selection instructions max-initial-plushy-size tests]
+           parent-selection instructions max-initial-plushy-size tests
+           filename]
     :as argmap}]
   (loop
    [n 0
     population (initialize-population instructions population-size max-initial-plushy-size)]  ;; Initialize population
     (let [population-w-errors (run-error-function population error-function error-calculation tests)]
-      (report population-w-errors n)  ;; Prints report
+      (write-report filename population-w-errors n)  ;; Prints report
       (cond
         (= n max-generations)
-        (let [best-individual (find-best-individual population-w-errors)
-              best-melody (:melody best-individual)
-              best-melody-klang (to-klangmeister-tune best-melody)]
-          (print-best-melody best-melody-klang)) ;; Klang melody of the best individual in last generation
+        (let [best-individual (find-best-individual population-w-errors)]
+          (write-best-melody filename best-individual)) ;; Klang melody of the best individual in last generation
         :else (recur (inc n)
-                     (generate-new-population instructions population-size population-w-errors parent-selection))))))  ;; Generates new population
+                     (generate-new-population instructions population-size population-w-errors parent-selection)))))
+    (write-config filename population-size max-generations error-function error-calculation
+                  parent-selection instructions max-initial-plushy-size tests)
+  )  ;; Generates new population
 
 
 ;;;;;;;;;;
@@ -1695,7 +1827,8 @@
    deterministic-generation
    deterministic-generation  ; Suggest including two of; otherwise, dup can take over very quickly
    music-stack-manipulation
-  ;;  repeat-instruction  ; Suggest commenting out; very powerful
+   music-stack-manipulation
+   repeat-instruction  ; Suggest commenting out; very powerful
    music-buffer-instruction
 
    ;; Constant literals
@@ -1719,7 +1852,6 @@
   ;;  melody-symphony-25
   ;;  melody-symphony-40
    ))
-
 
 ;;;;;;;;;;
 ;; PART XV. Actual Testing
@@ -1745,7 +1877,7 @@
             ;   a. Accuracy distance (calculate-for-accuracy-distance)
             ;   b. Accuracy & diversity (calculate-for-accuracy-n-diversity)
             ;   c. Levenshtein (calculate-for-levenshtein)
-            :error-calculation calculate-for-accuracy-n-diversity
+            :error-calculation calculate-for-levenshtein
             ; Objectives easily commented in/out above.
             :tests mozart-objs
             ; 4. TWO error fns:
@@ -1766,6 +1898,13 @@
   (time (music-error-fn example-music-individual calculate-for-accuracy-n-diversity mozart-objs))
   (time (music-error-fn example-music-individual calculate-for-levenshtein mozart-objs)))
 
+(defn write-additional
+  [filename]
+  (with-open [w (io/writer filename :append true)]
+    (.write w "-Instructions: Full w/ 2 random, 2 deterministic, 2 music stack manipulation")
+    (.newLine w)
+    (.write w "-Objectives: First 4 Mozart")
+    (.newLine w)))
 
 ;;;;;;;;;;
 ;; The main function call
@@ -1776,12 +1915,20 @@
   [& args]
   (binding [*ns* (the-ns 'push307.core)]
     ; The above line is necessary to allow `lein run` to work
+    (dotimes [run 20]
+      (let [filename (str "result" run ".txt")]
+        (push-gp {:parent-selection tournament-selection
+                  
+                  :error-calculation calculate-for-accuracy-distance
+                  :error-function music-error-fn
 
-    (push-gp {:instructions default-instructions
-              :parent-selection pareto-front
-              :error-calculation calculate-for-accuracy-n-diversity
-              :tests mozart-objs
-              :error-function music-error-fn
-              :max-generations 200
-              :population-size 100
-              :max-initial-plushy-size 50})))
+                  :max-generations 200
+                  :population-size 200
+                  :max-initial-plushy-size 100
+
+                  ;; Detailed in write-additional
+                  :instructions default-instructions
+                  :tests mozart-objs
+                  
+                  :filename filename})
+        (write-additional filename)))))
